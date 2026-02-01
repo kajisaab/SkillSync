@@ -34,6 +34,7 @@ DB_PORT="${DB_PORT:-5433}"
 declare -A SERVICES=(
     ["auth"]="auth-service:skillsync_auth:3001"
     ["course"]="course-service:skillsync_course:3002"
+    ["learning"]="learning-service:skillsync_learning:3003"
 )
 
 # =========================
@@ -413,7 +414,7 @@ show_ps() {
 show_health() {
     print_header "Service Health Status"
 
-    local all_services=("postgres" "redis" "auth-service" "course-service" "nginx")
+    local all_services=("postgres" "redis" "auth-service" "course-service" "learning-service" "nginx")
 
     for service in "${all_services[@]}"; do
         local container_name="skillsync-${service}"
@@ -543,6 +544,9 @@ case "$1" in
     rebuild:course)
         rebuild_service "course"
         ;;
+    rebuild:learning)
+        rebuild_service "learning"
+        ;;
 
     # Migration commands
     migrate)
@@ -553,6 +557,9 @@ case "$1" in
         ;;
     migrate:course)
         run_migration "course"
+        ;;
+    migrate:learning)
+        run_migration "learning"
         ;;
 
     # Utility commands

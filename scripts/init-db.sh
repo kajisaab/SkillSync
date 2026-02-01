@@ -30,6 +30,8 @@ EOSQL
 
 # Create databases for each microservice
 create_database "skillsync_auth"
+create_database "skillsync_course"
+create_database "skillsync_learning"
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Database initialization complete!${NC}"

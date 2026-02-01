@@ -142,6 +142,43 @@ services:
       retries: 3
       start_period: 40s
 
+  learning-service:
+    build:
+      context: ./learning-service
+      dockerfile: Dockerfile
+    container_name: skillsync-learning-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3003
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: skillsync_learning
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password}
+      JWT_SECRET: ${JWT_SECRET}
+      COURSE_SERVICE_URL: http://course-service:3002
+      AUTH_SERVICE_URL: http://auth-service:3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - skillsync-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3003/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
   # ==========================================
   # API GATEWAY LAYER
   # ==========================================
@@ -164,7 +201,7 @@ services:
     depends_on:
       - auth-service
       - course-service
-    #   - learning-service
+      - learning-service
     #   - payment-service
     networks:
       - skillsync-network
