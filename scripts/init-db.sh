@@ -32,6 +32,7 @@ EOSQL
 create_database "skillsync_auth"
 create_database "skillsync_course"
 create_database "skillsync_learning"
+create_database "skillsync_payment"
 
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}Database initialization complete!${NC}"

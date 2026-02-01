@@ -80,4 +80,7 @@ router.put(
   authController.updateProfile,
 );
 
+// GET /api/auth/validate - Validate token (used by nginx for centralized auth)
+router.get("/validate", authenticate, authController.validateToken);
+
 module.exports = router;

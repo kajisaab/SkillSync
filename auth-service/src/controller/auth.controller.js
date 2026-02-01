@@ -178,6 +178,33 @@ const updateProfile = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Validate token for nginx auth_request
+ * GET /api/auth/validate
+ * Used by nginx to validate tokens before forwarding to other services
+ * Returns user info in response headers for downstream services
+ */
+const validateToken = asyncHandler(async (req, res) => {
+  // If we reach here, the authenticate middleware has already validated the token
+  // and attached user info to req.user
+
+  // Set user info in response headers for nginx to forward to downstream services
+  res.set('X-User-Id', req.user.userId);
+  res.set('X-User-Email', req.user.email);
+  res.set('X-User-Role', req.user.role);
+
+  // Return 200 to indicate valid token
+  res.status(200).json({
+    success: true,
+    message: "Token is valid",
+    user: {
+      userId: req.user.userId,
+      email: req.user.email,
+      role: req.user.role,
+    },
+  });
+});
+
+/**
  * Health check
  * GET /health
  */
@@ -202,5 +229,6 @@ module.exports = {
   changePassword,
   getProfile,
   updateProfile,
+  validateToken,
   healthCheck,
 };

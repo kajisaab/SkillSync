@@ -157,8 +157,8 @@ services:
       DB_USER: ${POSTGRES_USER:-postgres}
       DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password}
       JWT_SECRET: ${JWT_SECRET}
-      COURSE_SERVICE_URL: http://course-service:3002
-      AUTH_SERVICE_URL: http://auth-service:3001
+      COURSE_SERVICE_URL: http://course-service:3002/api
+      AUTH_SERVICE_URL: http://auth-service:3001/api
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,6 +173,45 @@ services:
           "--tries=1",
           "--spider",
           "http://localhost:3003/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    container_name: skillsync-payment-service
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3004
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: skillsync_payment
+      DB_USER: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password}
+      JWT_SECRET: ${JWT_SECRET}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_dummy}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_dummy}
+      LEARNING_SERVICE_URL: http://learning-service:3003/api
+      COURSE_SERVICE_URL: http://course-service:3002/api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - skillsync-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3004/api/health",
         ]
       interval: 30s
       timeout: 10s
@@ -202,7 +241,7 @@ services:
       - auth-service
       - course-service
       - learning-service
-    #   - payment-service
+      - payment-service
     networks:
       - skillsync-network
     healthcheck:
