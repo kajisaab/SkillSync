@@ -1,10 +1,28 @@
 /**
  * HTTP Client Configuration
  * Axios clients for inter-service communication
+ * Implements Circuit Breaker and Retry patterns for resilience
  */
 
 const axios = require('axios');
 require('dotenv').config();
+const { registry: circuitBreakerRegistry } = require('../utils/circuit-breaker');
+const { retry, RetryableErrors } = require('../utils/retry');
+
+// Circuit breakers for external services
+const courseServiceBreaker = circuitBreakerRegistry.get('course-service', {
+  failureThreshold: 3,
+  successThreshold: 2,
+  timeout: 10000,
+  resetTimeout: 30000,
+});
+
+const authServiceBreaker = circuitBreakerRegistry.get('auth-service', {
+  failureThreshold: 3,
+  successThreshold: 2,
+  timeout: 10000,
+  resetTimeout: 30000,
+});
 
 /**
  * Course Service HTTP Client
@@ -57,7 +75,71 @@ const authServiceClient = axios.create({
   },
 });
 
+/**
+ * Resilient HTTP call with Circuit Breaker and Retry
+ * @param {Object} client - Axios client instance
+ * @param {Object} circuitBreaker - Circuit breaker instance
+ * @param {string} method - HTTP method
+ * @param {string} url - Request URL
+ * @param {Object} data - Request data (for POST/PUT/PATCH)
+ * @param {Object} config - Additional axios config
+ * @returns {Promise} Response
+ */
+const resilientCall = async (client, circuitBreaker, method, url, data = null, config = {}) => {
+  const requestFn = async () => {
+    if (['post', 'put', 'patch'].includes(method.toLowerCase())) {
+      return client[method.toLowerCase()](url, data, config);
+    }
+    return client[method.toLowerCase()](url, config);
+  };
+
+  return circuitBreaker.execute(async () => {
+    return retry(requestFn, {
+      maxRetries: 2,
+      initialDelay: 500,
+      retryableErrors: [...RetryableErrors.NETWORK, ...RetryableErrors.HTTP],
+      onRetry: (error, attempt, delay) => {
+        console.log(`[Resilient HTTP] Retry ${attempt} for ${method.toUpperCase()} ${url}, delay: ${delay}ms`);
+      },
+    });
+  });
+};
+
+/**
+ * Resilient Course Service Client
+ * Wraps axios methods with circuit breaker and retry
+ */
+const resilientCourseServiceClient = {
+  get: (url, config = {}) => resilientCall(courseServiceClient, courseServiceBreaker, 'get', url, null, config),
+  post: (url, data, config = {}) => resilientCall(courseServiceClient, courseServiceBreaker, 'post', url, data, config),
+  put: (url, data, config = {}) => resilientCall(courseServiceClient, courseServiceBreaker, 'put', url, data, config),
+  patch: (url, data, config = {}) => resilientCall(courseServiceClient, courseServiceBreaker, 'patch', url, data, config),
+  delete: (url, config = {}) => resilientCall(courseServiceClient, courseServiceBreaker, 'delete', url, null, config),
+};
+
+/**
+ * Resilient Auth Service Client
+ */
+const resilientAuthServiceClient = {
+  get: (url, config = {}) => resilientCall(authServiceClient, authServiceBreaker, 'get', url, null, config),
+  post: (url, data, config = {}) => resilientCall(authServiceClient, authServiceBreaker, 'post', url, data, config),
+};
+
+/**
+ * Get circuit breaker status for health checks
+ */
+const getCircuitBreakerStatus = () => {
+  return circuitBreakerRegistry.getAllStatus();
+};
+
 module.exports = {
+  // Raw clients (for backward compatibility)
   courseServiceClient,
   authServiceClient,
+  // Resilient clients (recommended)
+  resilientCourseServiceClient,
+  resilientAuthServiceClient,
+  // Circuit breaker utilities
+  getCircuitBreakerStatus,
+  circuitBreakerRegistry,
 };

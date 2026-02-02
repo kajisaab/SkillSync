@@ -218,6 +218,39 @@ const countSuccessfulByCourse = async (courseId) => {
   return parseInt(result.rows[0].count, 10);
 };
 
+/**
+ * Update transaction metadata
+ * @param {string} transactionId - Transaction ID
+ * @param {Object} metadata - New metadata to merge
+ * @returns {Promise<Object>} Updated transaction
+ */
+const updateMetadata = async (transactionId, metadata) => {
+  const result = await query(
+    `UPDATE transactions
+     SET metadata = $1,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE transaction_id = $2
+     RETURNING *`,
+    [JSON.stringify(metadata), transactionId]
+  );
+
+  return result.rows[0];
+};
+
+/**
+ * Find transactions requiring manual intervention
+ * @returns {Promise<Array>} Transactions needing attention
+ */
+const findRequiringIntervention = async () => {
+  const result = await query(
+    `SELECT * FROM transactions
+     WHERE metadata->>'requiresManualIntervention' = 'true'
+     ORDER BY created_at DESC`
+  );
+
+  return result.rows;
+};
+
 module.exports = {
   create,
   findById,
@@ -226,7 +259,9 @@ module.exports = {
   findByUserId,
   findByCourseId,
   updateStatus,
+  updateMetadata,
   findByUserAndCourse,
   getUserStats,
   countSuccessfulByCourse,
+  findRequiringIntervention,
 };

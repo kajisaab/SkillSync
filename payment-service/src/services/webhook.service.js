@@ -1,12 +1,15 @@
 /**
  * Webhook Service
  * Handles Stripe webhook events and triggers enrollments
+ * Implements Saga Pattern with Circuit Breaker and Retry
  */
 
 const { stripe, webhookSecret } = require('../config/stripe');
 const transactionRepository = require('../repositories/transaction.repository');
-const { learningServiceClient } = require('../config/http-client');
-const { BadRequestError, ServiceUnavailableError } = require('../utils/error.util');
+const { learningServiceClient, learningServiceBreaker } = require('../config/http-client');
+const { BadRequestError } = require('../utils/error.util');
+const { executePaymentSaga } = require('../sagas/payment.saga');
+const { retry, RetryableErrors } = require('../utils/retry');
 
 /**
  * Verify Stripe webhook signature
@@ -36,25 +39,31 @@ const verifyWebhookSignature = (rawBody, signature) => {
 };
 
 /**
- * Trigger enrollment in Learning Service
+ * Trigger enrollment in Learning Service with Circuit Breaker and Retry
  * @param {string} userId - User ID
  * @param {string} courseId - Course ID
+ * @param {string} transactionId - Transaction ID for saga tracking
  * @returns {Promise<Object>} Enrollment response
  */
-const triggerEnrollment = async (userId, courseId) => {
-  try {
-    console.log(`Triggering enrollment for user ${userId} in course ${courseId}`);
+const triggerEnrollment = async (userId, courseId, transactionId = null) => {
+  console.log(`Triggering enrollment for user ${userId} in course ${courseId}`);
 
+  const enrollmentFn = async () => {
     const response = await learningServiceClient.post(
-      '/enrollments',
-      { courseId },
+      '/enrollments/internal',
+      {
+        userId,
+        courseId,
+        transactionId,
+        source: 'payment_webhook',
+      },
       {
         headers: {
-          // Generate a system token or pass user context
-          // For now, we'll use internal service communication
           'X-Internal-Service': 'payment-service',
           'X-User-Id': userId,
+          'X-Saga-Transaction-Id': transactionId || '',
         },
+        timeout: 10000,
       }
     );
 
@@ -64,11 +73,29 @@ const triggerEnrollment = async (userId, courseId) => {
     }
 
     throw new Error('Enrollment response was not successful');
+  };
+
+  try {
+    // Execute with circuit breaker and retry
+    const result = await learningServiceBreaker.execute(async () => {
+      return retry(enrollmentFn, {
+        maxRetries: 3,
+        initialDelay: 1000,
+        retryableErrors: [...RetryableErrors.NETWORK, ...RetryableErrors.HTTP],
+        onRetry: (error, attempt, delay) => {
+          console.log(`[Enrollment] Retry ${attempt} for user ${userId}, course ${courseId}, delay: ${delay}ms`);
+        },
+      });
+    });
+
+    return result;
   } catch (error) {
     console.error('Failed to trigger enrollment:', error.message);
 
-    // Don't throw error - we want to mark payment as succeeded even if enrollment fails
-    // The enrollment can be retried or done manually later
+    if (error.code === 'CIRCUIT_OPEN') {
+      console.error('Learning Service circuit breaker is OPEN - service unavailable');
+    }
+
     if (error.response) {
       console.error('Learning Service error:', error.response.data);
     }
@@ -80,8 +107,9 @@ const triggerEnrollment = async (userId, courseId) => {
 
 /**
  * Handle checkout session completed event
+ * Uses Saga Pattern for distributed transaction management
  * @param {Object} session - Stripe checkout session
- * @returns {Promise<void>}
+ * @returns {Promise<Object>} Saga result
  */
 const handleCheckoutSessionCompleted = async (session) => {
   console.log('Processing checkout.session.completed event:', session.id);
@@ -90,7 +118,7 @@ const handleCheckoutSessionCompleted = async (session) => {
 
   if (!metadata || !metadata.transactionId) {
     console.error('Missing transaction ID in session metadata');
-    return;
+    return { success: false, error: 'Missing transaction ID' };
   }
 
   const transactionId = metadata.transactionId;
@@ -102,24 +130,47 @@ const handleCheckoutSessionCompleted = async (session) => {
 
   if (!transaction) {
     console.error(`Transaction ${transactionId} not found`);
-    return;
+    return { success: false, error: 'Transaction not found' };
   }
 
-  // Update transaction status to succeeded
-  await transactionRepository.updateStatus(transactionId, 'succeeded', payment_intent);
+  // Check if userId and courseId are available
+  if (!userId || !courseId) {
+    console.error('Missing userId or courseId for saga execution');
+    await transactionRepository.updateStatus(transactionId, 'succeeded', payment_intent);
+    return { success: false, error: 'Missing userId or courseId' };
+  }
 
-  console.log(`✓ Transaction ${transactionId} marked as succeeded`);
+  // Execute the Payment Saga
+  // This handles: Payment Verification → Enrollment → Compensation (refund) on failure
+  console.log(`Starting Payment Saga for transaction ${transactionId}`);
 
-  // Trigger enrollment in Learning Service
-  if (userId && courseId) {
-    await triggerEnrollment(userId, courseId);
+  const sagaResult = await executePaymentSaga(
+    transactionId,
+    userId,
+    courseId,
+    payment_intent
+  );
+
+  if (sagaResult.success) {
+    console.log(`✓ Payment Saga completed successfully for transaction ${transactionId}`);
   } else {
-    console.error('Missing userId or courseId for enrollment');
+    console.error(`✗ Payment Saga failed for transaction ${transactionId}:`, sagaResult.error);
+
+    if (sagaResult.compensated) {
+      console.log(`Payment was refunded due to enrollment failure`);
+    }
+
+    if (sagaResult.requiresManualIntervention) {
+      console.error(`ALERT: Transaction ${transactionId} requires manual intervention`);
+    }
   }
+
+  return sagaResult;
 };
 
 /**
  * Handle payment intent succeeded event
+ * Uses Circuit Breaker and Retry for resilience
  * @param {Object} paymentIntent - Stripe payment intent
  * @returns {Promise<void>}
  */
@@ -145,8 +196,12 @@ const handlePaymentIntentSucceeded = async (paymentIntent) => {
 
   console.log(`✓ Transaction ${transaction.transaction_id} marked as succeeded`);
 
-  // Trigger enrollment
-  await triggerEnrollment(transaction.user_id, transaction.course_id);
+  // Trigger enrollment with Circuit Breaker and Retry
+  await triggerEnrollment(
+    transaction.user_id,
+    transaction.course_id,
+    transaction.transaction_id
+  );
 };
 
 /**
