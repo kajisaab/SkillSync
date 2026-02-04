@@ -1,0 +1,115 @@
+# SkillSync CD Pipeline
+# Deploys to production server on push to master/main
+# Uses SSH to connect and run docker compose
+
+name: CD Pipeline
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+env:
+  DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/home/deploy/SkillSync' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
+            set -e
+
+            echo "=== Starting deployment ==="
+            cd ${{ env.DEPLOY_PATH }}
+
+            # Create deployment lock
+            LOCK_FILE="/tmp/skillsync-deploy.lock"
+            if [ -f "$LOCK_FILE" ]; then
+              LOCK_AGE=$(($(date +%s) - $(stat -c %Y "$LOCK_FILE")))
+              if [ $LOCK_AGE -lt 600 ]; then
+                echo "Deployment already in progress"
+                exit 1
+              fi
+              rm -f "$LOCK_FILE"
+            fi
+            echo $$ > "$LOCK_FILE"
+            trap "rm -f $LOCK_FILE" EXIT
+
+            echo "=== Pulling latest changes ==="
+            git fetch origin master
+            git reset --hard origin/master
+
+            echo "=== Building and deploying services ==="
+            docker compose pull
+            docker compose up -d --build --remove-orphans
+
+            echo "=== Waiting for services to be healthy ==="
+            sleep 10
+
+            echo "=== Running health checks ==="
+            # Health check for nginx
+            curl -f http://localhost/health || echo "Nginx health check warning"
+
+            echo "=== Cleaning up old images ==="
+            docker image prune -f
+
+            echo "=== Deployment complete ==="
+          ENDSSH
+
+      - name: Verify deployment
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'ENDSSH'
+            cd ${{ env.DEPLOY_PATH }}
+            echo "=== Container Status ==="
+            docker compose ps
+            echo ""
+            echo "=== Recent logs ==="
+            docker compose logs --tail=20
+          ENDSSH
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Deployment failed! Check the logs above for details."
+          # Add Slack/Discord notification here if needed
+          # curl -X POST -H 'Content-type: application/json' \
+          #   --data '{"text":"SkillSync deployment failed!"}' \
+          #   ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Rollback job (manual trigger only)
+  rollback:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    environment: production
+    needs: deploy
+    steps:
+      - name: Rollback instructions
+        run: |
+          echo "To rollback, SSH to the server and run:"
+          echo "  cd ${{ env.DEPLOY_PATH }}"
+          echo "  git log --oneline -5"
+          echo "  git reset --hard <previous-commit>"
+          echo "  docker compose up -d --build"
