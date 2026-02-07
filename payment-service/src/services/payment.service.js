@@ -78,6 +78,11 @@ const createCheckoutSession = async (userId, courseId, successUrl, cancelUrl) =>
   // Fetch course details
   const course = await fetchCourseDetails(courseId);
 
+  // Validate course has a price (free courses should not go through checkout)
+  if (!course.price || course.price <= 0) {
+    throw new BadRequestError('This course is free and does not require payment');
+  }
+
   // Check if user already purchased this course
   const alreadyPurchased = await checkExistingPurchase(userId, courseId);
   if (alreadyPurchased) {
@@ -107,7 +112,7 @@ const createCheckoutSession = async (userId, courseId, successUrl, cancelUrl) =>
             currency: 'usd',
             product_data: {
               name: course.title,
-              description: course.description.substring(0, 500), // Stripe limit
+              description: (course.description || course.title).substring(0, 500), // Stripe limit
               images: course.thumbnailUrl ? [course.thumbnailUrl] : [],
             },
             unit_amount: Math.round(course.price * 100), // Amount in cents
@@ -127,26 +132,15 @@ const createCheckoutSession = async (userId, courseId, successUrl, cancelUrl) =>
     });
 
     // Update transaction with Stripe session ID
-    await transactionRepository.updateStatus(
+    await transactionRepository.updateStripeSessionId(
       transaction.transaction_id,
-      'pending',
-      null
+      session.id
     );
-
-    // Store session ID
-    await transactionRepository.findById(transaction.transaction_id);
-    const updatedTransaction = await transactionRepository.create({
-      ...transaction,
-      stripeSessionId: session.id,
-    });
-
-    // Delete the old transaction and use the new one
-    await transactionRepository.updateStatus(transaction.transaction_id, 'cancelled', null);
 
     return {
       sessionId: session.id,
       sessionUrl: session.url,
-      transactionId: updatedTransaction.transaction_id,
+      transactionId: transaction.transaction_id,
       amount: course.price,
       currency: 'usd',
       courseTitle: course.title,

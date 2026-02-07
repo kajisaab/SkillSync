@@ -144,6 +144,25 @@ const findByCourseId = async (courseId, limit, offset) => {
 };
 
 /**
+ * Update transaction Stripe session ID
+ * @param {string} transactionId - Transaction ID
+ * @param {string} stripeSessionId - Stripe checkout session ID
+ * @returns {Promise<Object>} Updated transaction
+ */
+const updateStripeSessionId = async (transactionId, stripeSessionId) => {
+  const result = await query(
+    `UPDATE transactions
+     SET stripe_session_id = $1,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE transaction_id = $2
+     RETURNING *`,
+    [stripeSessionId, transactionId]
+  );
+
+  return result.rows[0];
+};
+
+/**
  * Update transaction status
  * @param {string} transactionId - Transaction ID
  * @param {string} status - New status
@@ -259,6 +278,7 @@ module.exports = {
   findByUserId,
   findByCourseId,
   updateStatus,
+  updateStripeSessionId,
   updateMetadata,
   findByUserAndCourse,
   getUserStats,
