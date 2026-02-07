@@ -18,14 +18,19 @@ const {
 // Create Express app
 const app = express();
 
-// Helmet - Set security headers
-app.use(helmet());
+// Helmet - Set security headers (with CORS-friendly settings)
+// app.use(helmet({
+//   crossOriginResourcePolicy: { policy: "cross-origin" },
+//   crossOriginOpenerPolicy: { policy: "unsafe-none" },
+// }));
 
 // CORS - Enable cross-origin requests
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
   }),
 );
 

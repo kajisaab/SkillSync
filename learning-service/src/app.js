@@ -14,15 +14,16 @@ const { errorHandler, notFoundHandler } = require('./middlewares/error.middlewar
 const app = express();
 
 // ===== Security Middleware =====
-app.use(helmet());
+// Helmet disabled for CORS compatibility - NGINX handles security headers
+// app.use(helmet());
 
 // ===== CORS Configuration =====
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   })
 );
 

@@ -33,12 +33,11 @@ router.post(
 /**
  * POST /api/storage/download-url
  * Generate presigned URL for file download
- * Instructor only
+ * Any authenticated user (students need to watch videos)
  */
 router.post(
   '/download-url',
   authenticate,
-  requireInstructor,
   validateBody(downloadRequestSchema),
   storageController.generateDownloadUrl
 );

@@ -9,7 +9,6 @@
 .env.production
 .env.development
 .env.test
-*.env
 *.md
 
 # ==========================================
