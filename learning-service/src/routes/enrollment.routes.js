@@ -41,6 +41,17 @@ router.get(
 );
 
 /**
+ * POST /api/enrollments/internal
+ * Internal enrollment endpoint for service-to-service calls
+ * Called by Payment Service during Saga execution
+ * No external authentication - uses internal service header validation
+ */
+router.post(
+  '/internal',
+  enrollmentController.internalEnroll
+);
+
+/**
  * GET /api/enrollments/check/:courseId
  * Check enrollment status for a course
  * Private access
@@ -62,17 +73,6 @@ router.get(
   authenticate,
   validateParams(enrollmentIdParamSchema),
   enrollmentController.getEnrollmentById
-);
-
-/**
- * POST /api/enrollments/internal
- * Internal enrollment endpoint for service-to-service calls
- * Called by Payment Service during Saga execution
- * No external authentication - uses internal service header validation
- */
-router.post(
-  '/internal',
-  enrollmentController.internalEnroll
 );
 
 module.exports = router;

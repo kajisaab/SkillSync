@@ -203,6 +203,8 @@ services:
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_dummy}
       LEARNING_SERVICE_URL: http://learning-service:3003/api
       COURSE_SERVICE_URL: http://course-service:3002/api
+    ports:
+      - "3004:3004"
     depends_on:
       postgres:
         condition: service_healthy
