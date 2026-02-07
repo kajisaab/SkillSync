@@ -90,10 +90,11 @@ const createCheckoutSession = async (userId, courseId, successUrl, cancelUrl) =>
   }
 
   // Create transaction record with pending status
+  // Note: course.price is already stored in cents from the frontend
   const transaction = await transactionRepository.create({
     userId,
     courseId,
-    amount: Math.round(course.price * 100), // Convert to cents
+    amount: Math.round(course.price), // Price is already in cents
     currency: 'usd',
     status: 'pending',
     metadata: {
@@ -115,7 +116,7 @@ const createCheckoutSession = async (userId, courseId, successUrl, cancelUrl) =>
               description: (course.description || course.title).substring(0, 500), // Stripe limit
               images: course.thumbnailUrl ? [course.thumbnailUrl] : [],
             },
-            unit_amount: Math.round(course.price * 100), // Amount in cents
+            unit_amount: Math.round(course.price), // Price is already in cents
           },
           quantity: 1,
         },
