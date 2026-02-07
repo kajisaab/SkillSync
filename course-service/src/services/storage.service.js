@@ -20,7 +20,7 @@ const generateUploadUrl = async (fileType, folder = 'videos') => {
   const allowedTypes = {
     videos: ['video/mp4', 'video/webm', 'video/ogg'],
     resources: ['application/pdf', 'application/zip', 'application/x-zip-compressed'],
-    thumbnails: ['image/jpeg', 'image/png', 'image/webp'],
+    thumbnails: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
   };
 
   if (!allowedTypes[folder] || !allowedTypes[folder].includes(fileType)) {
@@ -31,20 +31,31 @@ const generateUploadUrl = async (fileType, folder = 'videos') => {
   const fileExtension = fileType.split('/')[1];
   const fileKey = `${folder}/${uuidv4()}.${fileExtension}`;
 
-  // Create presigned URL (valid for 15 minutes)
-  const command = new PutObjectCommand({
+  // Create presigned URL for upload (valid for 15 minutes)
+  const putCommand = new PutObjectCommand({
     Bucket: bucketName,
     Key: fileKey,
     ContentType: fileType,
   });
 
+  // Create presigned URL for download (valid for 7 days for thumbnails, 1 hour for videos)
+  const getCommand = new GetObjectCommand({
+    Bucket: bucketName,
+    Key: fileKey,
+  });
+
   try {
-    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
+    const uploadUrl = await getSignedUrl(s3Client, putCommand, { expiresIn: 900 });
+
+    // Thumbnails get longer expiry since they're displayed in UI
+    const downloadExpiresIn = folder === 'thumbnails' ? 604800 : 3600; // 7 days or 1 hour
+    const downloadUrl = await getSignedUrl(s3Client, getCommand, { expiresIn: downloadExpiresIn });
 
     return {
       uploadUrl,
       fileKey,
       fileUrl: `https://${bucketName}.r2.cloudflarestorage.com/${fileKey}`,
+      downloadUrl, // Signed URL that can be used to view the file
     };
   } catch (error) {
     console.error('Error generating upload URL:', error);
