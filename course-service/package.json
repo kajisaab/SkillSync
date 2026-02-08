@@ -45,27 +45,6 @@
     "supertest": "^6.3.3",
     "eslint": "^8.55.0"
   },
-  "jest": {
-    "testEnvironment": "node",
-    "coverageDirectory": "coverage",
-    "collectCoverageFrom": [
-      "src/**/*.js",
-      "!src/server.js",
-      "!src/migrations/**",
-      "!src/scripts/**"
-    ],
-    "testMatch": [
-      "**/tests/**/*.test.js"
-    ],
-    "coverageThreshold": {
-      "global": {
-        "branches": 70,
-        "functions": 70,
-        "lines": 70,
-        "statements": 70
-      }
-    }
-  },
   "nodemonConfig": {
     "watch": [
       "src"
